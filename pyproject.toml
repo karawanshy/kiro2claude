@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kiro2claude"
+version = "0.1.0"
+description = "Run a Kiro AI workflow (.kiro/ agents, skills, steering, hooks) in Claude Code, keeping .kiro/ as the single source of truth."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Karawan Sh. Y." }]
+requires-python = ">=3.9"
+keywords = ["kiro", "claude-code", "ai-agents", "developer-tools"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development",
+]
+
+[project.scripts]
+kiro2claude = "kiro2claude:cli"
+
+[tool.setuptools]
+py-modules = ["kiro2claude"]
+package-dir = { "" = "src" }
