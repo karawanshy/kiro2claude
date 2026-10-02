@@ -50,8 +50,8 @@ Python 3.9+ and no dependencies. Pick one:
 **Installed command** (each developer installs it once):
 
 ```bash
-pipx install git+https://github.com/<owner>/kiro2claude
-# or: uv tool install git+https://github.com/<owner>/kiro2claude
+pipx install git+https://github.com/karawanshy/kiro2claude
+# or: uv tool install git+https://github.com/karawanshy/kiro2claude
 
 cd your-project          # must contain .kiro/
 kiro2claude init         # writes .claude/settings.json + .gitignore entries, then syncs

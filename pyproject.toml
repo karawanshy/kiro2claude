@@ -22,6 +22,10 @@ classifiers = [
     "Topic :: Software Development",
 ]
 
+[project.urls]
+Homepage = "https://github.com/karawanshy/kiro2claude"
+Issues = "https://github.com/karawanshy/kiro2claude/issues"
+
 [project.scripts]
 kiro2claude = "kiro2claude:cli"
 

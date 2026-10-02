@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""kiro2claude: run a project's Kiro AI workflow (.kiro/) in Claude Code. MIT License.
+"""kiro2claude: run a project's Kiro AI workflow (.kiro/) in Claude Code.
+
+https://github.com/karawanshy/kiro2claude · MIT License
 
 .kiro/ stays the single source of truth. This tool translates it into the
 files Claude Code reads (CLAUDE.md, .claude/agents, .claude/skills,
