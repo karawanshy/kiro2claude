@@ -58,11 +58,37 @@ HASHED_KIRO_DIRS = ("agents", "skills", "steering", "hooks", "settings")
 
 # Claude Code built-in commands/skills a Kiro skill must not shadow.
 RESERVED_SKILL_NAMES = {
-    "agents", "batch", "claude-api", "clear", "code-review", "compact",
-    "config", "context", "cost", "doctor", "fewer-permission-prompts", "help",
-    "hooks", "init", "keybindings-help", "login", "logout", "loop", "mcp",
-    "memory", "model", "permissions", "pr-comments", "resume", "review", "run",
-    "schedule", "security-review", "simplify", "status", "statusline",
+    "agents",
+    "batch",
+    "claude-api",
+    "clear",
+    "code-review",
+    "compact",
+    "config",
+    "context",
+    "cost",
+    "doctor",
+    "fewer-permission-prompts",
+    "help",
+    "hooks",
+    "init",
+    "keybindings-help",
+    "login",
+    "logout",
+    "loop",
+    "mcp",
+    "memory",
+    "model",
+    "permissions",
+    "pr-comments",
+    "resume",
+    "review",
+    "run",
+    "schedule",
+    "security-review",
+    "simplify",
+    "status",
+    "statusline",
     "update-config",
 }
 RENAMED_SKILL_PREFIX = "kiro-"
@@ -150,6 +176,7 @@ GITIGNORE_BLOCK = """\
 # Small helpers
 # --------------------------------------------------------------------------
 
+
 def find_root() -> Path:
     env = os.environ.get("CLAUDE_PROJECT_DIR")
     if env and (Path(env) / ".kiro").is_dir():
@@ -207,7 +234,7 @@ def split_frontmatter(text: str):
                 if kv:
                     key = kv.group(1)
                     meta[key] = _scalar(kv.group(2)) if kv.group(2).strip() else []
-            return meta, "".join(lines[i + 1:])
+            return meta, "".join(lines[i + 1 :])
     return {}, text
 
 
@@ -225,6 +252,7 @@ def rel(path: Path, root: Path) -> str:
 # --------------------------------------------------------------------------
 # Reading .kiro/
 # --------------------------------------------------------------------------
+
 
 def compute_hash(root: Path) -> str:
     h = hashlib.sha256()
@@ -271,7 +299,7 @@ def read_agents(root: Path, warnings: list) -> list:
         name = data.get("name") or path.stem
         prompt = data.get("prompt") or ""
         if prompt.startswith("file://"):
-            ref = (path.parent / prompt[len("file://"):]).resolve()
+            ref = (path.parent / prompt[len("file://") :]).resolve()
             try:
                 prompt = ref.read_text()
             except OSError:
@@ -283,9 +311,9 @@ def read_agents(root: Path, warnings: list) -> list:
                 warnings.append(f"agent {name}: unsupported resource {res!r}; skipped")
                 continue
             if res.startswith("skill://"):
-                skills.append(res[len("skill://"):])
+                skills.append(res[len("skill://") :])
             elif res.startswith("file://"):
-                pattern = res[len("file://"):]
+                pattern = res[len("file://") :]
                 matches = sorted(
                     rel(Path(m).resolve(), root)
                     for m in globlib.glob(str(root / pattern), recursive=True)
@@ -297,16 +325,18 @@ def read_agents(root: Path, warnings: list) -> list:
         for key in ("hooks", "toolsSettings", "knowledgeBase"):
             if data.get(key):
                 warnings.append(f"agent {name}: `{key}` has no Claude Code equivalent; ignored")
-        agents.append({
-            "name": name,
-            "source": rel(path, root),
-            "description": data.get("description") or "",
-            "prompt": prompt,
-            "tools": data.get("tools") or [],
-            "model": data.get("model"),
-            "files": files,
-            "skills": skills,
-        })
+        agents.append(
+            {
+                "name": name,
+                "source": rel(path, root),
+                "description": data.get("description") or "",
+                "prompt": prompt,
+                "tools": data.get("tools") or [],
+                "model": data.get("model"),
+                "files": files,
+                "skills": skills,
+            }
+        )
     return agents
 
 
@@ -316,11 +346,13 @@ def read_skills(root: Path) -> list:
     for skill_md in sorted(base.glob("*/SKILL.md")):
         meta, _ = split_frontmatter(skill_md.read_text())
         name = str(meta.get("name") or skill_md.parent.name)
-        skills.append({
-            "name": name,
-            "dir": skill_md.parent,
-            "description": str(meta.get("description") or ""),
-        })
+        skills.append(
+            {
+                "name": name,
+                "dir": skill_md.parent,
+                "description": str(meta.get("description") or ""),
+            }
+        )
     return skills
 
 
@@ -333,17 +365,23 @@ def read_steering(root: Path) -> list:
         patterns = meta.get("fileMatchPattern") or meta.get("fileMatchPatterns") or []
         if isinstance(patterns, str):
             patterns = [p.strip() for p in patterns.split(",") if p.strip()]
-        slug = re.sub(r"[^a-z0-9]+", "-", path.relative_to(base).with_suffix("").as_posix().lower()).strip("-")
+        slug = re.sub(
+            r"[^a-z0-9]+", "-", path.relative_to(base).with_suffix("").as_posix().lower()
+        ).strip("-")
         heading = re.search(r"^#\s+(.+)$", body, re.M)
-        out.append({
-            "path": rel(path, root),
-            "slug": slug,
-            "inclusion": inclusion,
-            "patterns": patterns,
-            "description": str(meta.get("description") or (heading.group(1) if heading else slug)),
-            "body": body,
-            "refs": re.findall(r"#\[\[file:([^\]]+)\]\]", body),
-        })
+        out.append(
+            {
+                "path": rel(path, root),
+                "slug": slug,
+                "inclusion": inclusion,
+                "patterns": patterns,
+                "description": str(
+                    meta.get("description") or (heading.group(1) if heading else slug)
+                ),
+                "body": body,
+                "refs": re.findall(r"#\[\[file:([^\]]+)\]\]", body),
+            }
+        )
     return out
 
 
@@ -373,25 +411,30 @@ def read_hooks(root: Path, warnings=None) -> list:
             if not matcher and when.get("toolTypes"):
                 matcher = "|".join(when["toolTypes"])
             action_type = norm(then.get("type") or "command")
-            hooks.append({
-                "name": h.get("name") or path.stem,
-                "source": rel(path, root),
-                "description": h.get("description") or "",
-                "trigger": trigger,
-                "event": KIRO_TRIGGER_TO_CLAUDE.get(norm(trigger)),
-                "file_trigger": norm(trigger) in FILE_TRIGGERS and norm(trigger),
-                "matcher": matcher,
-                "patterns": when.get("patterns") or h.get("patterns") or [],
-                "command": then.get("command") if action_type in ("command", "runcommand") else None,
-                "prompt": then.get("prompt") if action_type in ("askagent", "prompt") else None,
-                "timeout": then.get("timeout", h.get("timeout")),
-            })
+            hooks.append(
+                {
+                    "name": h.get("name") or path.stem,
+                    "source": rel(path, root),
+                    "description": h.get("description") or "",
+                    "trigger": trigger,
+                    "event": KIRO_TRIGGER_TO_CLAUDE.get(norm(trigger)),
+                    "file_trigger": norm(trigger) in FILE_TRIGGERS and norm(trigger),
+                    "matcher": matcher,
+                    "patterns": when.get("patterns") or h.get("patterns") or [],
+                    "command": then.get("command")
+                    if action_type in ("command", "runcommand")
+                    else None,
+                    "prompt": then.get("prompt") if action_type in ("askagent", "prompt") else None,
+                    "timeout": then.get("timeout", h.get("timeout")),
+                }
+            )
     return hooks
 
 
 # --------------------------------------------------------------------------
 # Building the output plan
 # --------------------------------------------------------------------------
+
 
 def map_tools(kiro_tools: list, agent: str, warnings: list):
     claude, grant_all = [], False
@@ -401,7 +444,9 @@ def map_tools(kiro_tools: list, agent: str, warnings: list):
             key = "@mcp"  # a specific MCP server
         mapped = KIRO_TOOLS_TO_CLAUDE.get(key, "unknown")
         if mapped == "unknown":
-            warnings.append(f"agent {agent}: Kiro tool `{t}` has no Claude Code equivalent; not granted")
+            warnings.append(
+                f"agent {agent}: Kiro tool `{t}` has no Claude Code equivalent; not granted"
+            )
         elif mapped is None:
             grant_all = True
         else:
@@ -420,7 +465,11 @@ def map_model(model):
 
 def agent_markdown(agent: dict, skill_names: dict, always_loaded: set, warnings: list) -> str:
     tools = map_tools(agent["tools"], agent["name"], warnings)
-    fm = ["---", f"name: {agent['name']}", f"description: {yaml_str(agent['description'] or agent['name'])}"]
+    fm = [
+        "---",
+        f"name: {agent['name']}",
+        f"description: {yaml_str(agent['description'] or agent['name'])}",
+    ]
     if tools is not None:
         fm.append(f"tools: {', '.join(tools)}")
     model = map_model(agent["model"])
@@ -442,8 +491,11 @@ def agent_markdown(agent: dict, skill_names: dict, always_loaded: set, warnings:
     if agent["files"] or agent["skills"]:
         ctx = ["## Context (Kiro `resources`)"]
         if loaded:
-            ctx += ["", "The project steering is already in your context (loaded through CLAUDE.md); "
-                    "do not read those files again."]
+            ctx += [
+                "",
+                "The project steering is already in your context (loaded through CLAUDE.md); "
+                "do not read those files again.",
+            ]
         if agent["skills"]:
             ctx += ["", "Skills: read the SKILL.md when your task needs it."]
             for sk in agent["skills"]:
@@ -465,7 +517,14 @@ def replace_file_refs(body: str) -> str:
 def build_plan(root: Path, warnings: list):
     """Return (outputs, summary): outputs maps path -> (kind, payload)."""
     outputs: dict = {}
-    summary = {"agents": [], "coordinators": [], "skills": [], "steering": [], "hooks": [], "unmapped_hooks": []}
+    summary = {
+        "agents": [],
+        "coordinators": [],
+        "skills": [],
+        "steering": [],
+        "hooks": [],
+        "unmapped_hooks": [],
+    }
 
     # Skills: symlink the whole folder; rewrite SKILL.md only if renamed.
     skill_names = {}
@@ -476,8 +535,10 @@ def build_plan(root: Path, warnings: list):
             warnings.append(f"skill {name}: shadows a Claude Code built-in; available as `{new}`")
             dest = f".claude/skills/{new}"
             meta_text = (s["dir"] / "SKILL.md").read_text()
-            outputs[f"{dest}/SKILL.md"] = ("file", re.sub(
-                r"^(name:\s*).*$", rf"\g<1>{new}", meta_text, count=1, flags=re.M))
+            outputs[f"{dest}/SKILL.md"] = (
+                "file",
+                re.sub(r"^(name:\s*).*$", rf"\g<1>{new}", meta_text, count=1, flags=re.M),
+            )
             for child in sorted(s["dir"].iterdir()):
                 if child.name != "SKILL.md":
                     outputs[f"{dest}/{child.name}"] = ("symlink", rel(child, root))
@@ -492,21 +553,33 @@ def build_plan(root: Path, warnings: list):
         mode = st["inclusion"]
         if mode == "filematch" and st["patterns"]:
             fm = ["---", "paths:"] + [f"  - {yaml_str(p)}" for p in st["patterns"]] + ["---"]
-            outputs[f".claude/rules/{st['slug']}.md"] = ("file", "\n".join(fm) + "\n"
-                f"<!-- {GENERATED_NOTE} Source: {st['path']} -->\n\n" + replace_file_refs(st["body"]).lstrip())
+            outputs[f".claude/rules/{st['slug']}.md"] = (
+                "file",
+                "\n".join(fm) + "\n"
+                f"<!-- {GENERATED_NOTE} Source: {st['path']} -->\n\n"
+                + replace_file_refs(st["body"]).lstrip(),
+            )
         elif mode in ("manual", "auto"):
             name = f"steering-{st['slug']}"
             fm = ["---", f"name: {name}", f"description: {yaml_str(st['description'])}"]
             if mode == "manual":
                 fm.append("disable-model-invocation: true")
             fm.append("---")
-            outputs[f".claude/skills/{name}/SKILL.md"] = ("file", "\n".join(fm) + "\n"
-                f"<!-- {GENERATED_NOTE} Source: {st['path']} -->\n\n" + replace_file_refs(st["body"]).lstrip())
+            outputs[f".claude/skills/{name}/SKILL.md"] = (
+                "file",
+                "\n".join(fm) + "\n"
+                f"<!-- {GENERATED_NOTE} Source: {st['path']} -->\n\n"
+                + replace_file_refs(st["body"]).lstrip(),
+            )
         else:
             if mode not in ("always", "filematch"):
-                warnings.append(f"steering {st['path']}: unknown inclusion `{mode}`; treated as always")
+                warnings.append(
+                    f"steering {st['path']}: unknown inclusion `{mode}`; treated as always"
+                )
             if mode == "filematch":
-                warnings.append(f"steering {st['path']}: fileMatch without a pattern; treated as always")
+                warnings.append(
+                    f"steering {st['path']}: fileMatch without a pattern; treated as always"
+                )
             mode = "always"
         summary["steering"].append((st, mode))
 
@@ -516,7 +589,10 @@ def build_plan(root: Path, warnings: list):
         if mode == "always":
             always_loaded |= {st["path"], *(r.strip() for r in st["refs"])}
     for a in read_agents(root, warnings):
-        outputs[f".claude/agents/{a['name']}.md"] = ("file", agent_markdown(a, skill_names, always_loaded, warnings))
+        outputs[f".claude/agents/{a['name']}.md"] = (
+            "file",
+            agent_markdown(a, skill_names, always_loaded, warnings),
+        )
         summary["agents"].append((a["name"], a["description"]))
         if COORDINATOR_TOOLS & {t.lower() for t in a["tools"]}:
             summary["coordinators"].append(a["name"])
@@ -537,10 +613,16 @@ def build_plan(root: Path, warnings: list):
             for name, cfg in servers.items():
                 if cfg.get("disabled"):
                     continue
-                c = {k: v for k, v in cfg.items() if k in ("command", "args", "env", "url", "headers", "type")}
+                c = {
+                    k: v
+                    for k, v in cfg.items()
+                    if k in ("command", "args", "env", "url", "headers", "type")
+                }
                 if "url" in c and "type" not in c:
                     c["type"] = "http"
-                out[name] = json.loads(re.sub(r"\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}", r"${\1}", json.dumps(c)))
+                out[name] = json.loads(
+                    re.sub(r"\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}", r"${\1}", json.dumps(c))
+                )
             outputs[".mcp.json"] = ("file", json.dumps({"mcpServers": out}, indent=2) + "\n")
         except ValueError as e:
             warnings.append(f".kiro/settings/mcp.json: invalid JSON ({e}); skipped")
@@ -548,8 +630,10 @@ def build_plan(root: Path, warnings: list):
     # CLAUDE.md (or a side file when the project has a hand-written CLAUDE.md).
     if claude_md_is_unmanaged(root):
         md_path = ".claude/kiro2claude.md"
-        warnings.append("CLAUDE.md is hand-written; generated instructions written to "
-                        f"{md_path}. Add the line `@{md_path}` to CLAUDE.md to load them.")
+        warnings.append(
+            "CLAUDE.md is hand-written; generated instructions written to "
+            f"{md_path}. Add the line `@{md_path}` to CLAUDE.md to load them."
+        )
     else:
         md_path = "CLAUDE.md"
     outputs[md_path] = ("file", claude_md(root, md_path, summary))
@@ -562,10 +646,15 @@ def claude_md(root: Path, md_path: str, summary: dict) -> str:
     def imp(p: str) -> str:
         return "@" + os.path.relpath(root / p, md_dir).replace(os.sep, "/")
 
-    out = [f"<!-- {GENERATED_NOTE} -->", "", "# Project AI workflow (from Kiro)", "",
-           "This project's AI workflow lives in `.kiro/` and is shared with Kiro. "
-           "This file and the agents, skills and rules under `.claude/` are generated from it; "
-           "to change behaviour, edit `.kiro/`."]
+    out = [
+        f"<!-- {GENERATED_NOTE} -->",
+        "",
+        "# Project AI workflow (from Kiro)",
+        "",
+        "This project's AI workflow lives in `.kiro/` and is shared with Kiro. "
+        "This file and the agents, skills and rules under `.claude/` are generated from it; "
+        "to change behaviour, edit `.kiro/`.",
+    ]
 
     always = [st for st, mode in summary["steering"] if mode == "always"]
     if always:
@@ -575,14 +664,23 @@ def claude_md(root: Path, md_path: str, summary: dict) -> str:
             out += [imp(r.strip()) for r in st["refs"]]
     scoped = [st for st, mode in summary["steering"] if mode == "filematch"]
     if scoped:
-        out += ["", "## Path-scoped steering", "",
-                "Loaded from `.claude/rules/` when you work on matching files:"]
+        out += [
+            "",
+            "## Path-scoped steering",
+            "",
+            "Loaded from `.claude/rules/` when you work on matching files:",
+        ]
         out += [f"- `{st['path']}`: {', '.join(f'`{p}`' for p in st['patterns'])}" for st in scoped]
     on_demand = [(st, mode) for st, mode in summary["steering"] if mode in ("manual", "auto")]
     if on_demand:
         out += ["", "## On-demand steering", ""]
-        out += [f"- `steering-{st['slug']}` ({'invoke with /' + 'steering-' + st['slug'] if mode == 'manual' else 'loaded when relevant'}): `{st['path']}`"
-                for st, mode in on_demand]
+        for st, mode in on_demand:
+            how = (
+                f"invoke with /steering-{st['slug']}"
+                if mode == "manual"
+                else "loaded when relevant"
+            )
+            out.append(f"- `steering-{st['slug']}` ({how}): `{st['path']}`")
 
     specs = root / ".kiro/specs"
     if specs.is_dir():
@@ -594,14 +692,22 @@ def claude_md(root: Path, md_path: str, summary: dict) -> str:
                 out.append(f"- `{rel(d, root)}/`: {files}")
 
     if summary["agents"]:
-        out += ["", "## Agents", "",
-                "Defined in `.kiro/agents/`, available as Claude Code subagents (`.claude/agents/`):"]
+        out += [
+            "",
+            "## Agents",
+            "",
+            "Defined in `.kiro/agents/`, available as Claude Code subagents (`.claude/agents/`):",
+        ]
         out += [f"- `{n}`: {first_sentence(d)}" for n, d in summary["agents"]]
         if summary["coordinators"]:
             names = ", ".join(f"`{n}`" for n in summary["coordinators"])
-            out += ["", f"Coordinator agents ({names}) delegate to the others. Subagents cannot start "
-                    "subagents in Claude Code, so to use a coordinator the main session reads its file in "
-                    "`.claude/agents/` and follows it, delegating with the Agent tool."]
+            out += [
+                "",
+                f"Coordinator agents ({names}) delegate to the others. Subagents cannot "
+                "start subagents in Claude Code, so to use a coordinator the main session "
+                "reads its file in `.claude/agents/` and follows it, delegating with the "
+                "Agent tool.",
+            ]
 
     if summary["skills"]:
         out += ["", "## Skills", "", "From `.kiro/skills/`, loaded when relevant:"]
@@ -615,9 +721,19 @@ def claude_md(root: Path, md_path: str, summary: dict) -> str:
                 m = f", matcher `{h['matcher']}`" if h["matcher"] else ""
                 out.append(f"- `{h['name']}`: {h['event']}{m}")
         if summary["unmapped_hooks"]:
-            out += ["", "These Kiro hooks have no Claude Code trigger. Do what they do yourself at the right moment:"]
+            out += [
+                "",
+                "These Kiro hooks have no Claude Code trigger. "
+                "Do what they do yourself at the right moment:",
+            ]
             for h in summary["unmapped_hooks"]:
-                what = f"run `{h['command']}`" if h["command"] else f"follow: {h['prompt']}" if h["prompt"] else "see its definition"
+                what = (
+                    f"run `{h['command']}`"
+                    if h["command"]
+                    else f"follow: {h['prompt']}"
+                    if h["prompt"]
+                    else "see its definition"
+                )
                 desc = f" {first_sentence(h['description'], 300)}" if h["description"] else ""
                 out.append(f"- `{h['name']}` (Kiro trigger `{h['trigger']}`): {what}.{desc}")
     return "\n".join(out) + "\n"
@@ -626,6 +742,7 @@ def claude_md(root: Path, md_path: str, summary: dict) -> str:
 # --------------------------------------------------------------------------
 # Writing outputs
 # --------------------------------------------------------------------------
+
 
 def _matches(path: Path, kind: str, payload: str, root: Path) -> bool:
     if kind == "symlink":
@@ -746,15 +863,24 @@ def cmd_sync(args: list) -> int:
         if status == "synced":
             report = format_report(changes, warnings)
             context = (
-                f"{TOOL} regenerated the Claude Code setup from .kiro/ at session start.\n{report}\n"
+                f"{TOOL} regenerated the Claude Code setup from .kiro/ at session start.\n"
+                f"{report}\n"
                 "Files written now may not be loaded in this session yet: read CLAUDE.md before "
                 "starting work. New or changed agents load after a restart."
             )
-            print(json.dumps({
-                "systemMessage": f"{TOOL}: regenerated Claude Code setup from .kiro/ "
-                                 f"({sum(len(v) for v in changes.values())} changes). Restart to load new agents.",
-                "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context},
-            }))
+            print(
+                json.dumps(
+                    {
+                        "systemMessage": f"{TOOL}: regenerated Claude Code setup from .kiro/ "
+                        f"({sum(len(v) for v in changes.values())} changes). "
+                        "Restart to load new agents.",
+                        "hookSpecificOutput": {
+                            "hookEventName": "SessionStart",
+                            "additionalContext": context,
+                        },
+                    }
+                )
+            )
         return 0
     if status == "current":
         print(f"{TOOL}: up to date")
@@ -769,6 +895,7 @@ def cmd_sync(args: list) -> int:
 # --------------------------------------------------------------------------
 # Hook dispatch
 # --------------------------------------------------------------------------
+
 
 def _tool_aliases(tool_name: str) -> set:
     aliases = {tool_name} | CLAUDE_TOOL_TO_KIRO.get(tool_name, set())
@@ -841,10 +968,19 @@ def cmd_dispatch(args: list) -> int:
             continue
         if not h["command"]:
             continue
-        timeout = h["timeout"] if isinstance(h["timeout"], (int, float)) and h["timeout"] > 0 else None
+        timeout = (
+            h["timeout"] if isinstance(h["timeout"], (int, float)) and h["timeout"] > 0 else None
+        )
         try:
-            proc = subprocess.run(h["command"], shell=True, cwd=root, input=raw, text=True,
-                                  capture_output=True, timeout=timeout)
+            proc = subprocess.run(
+                h["command"],
+                shell=True,
+                cwd=root,
+                input=raw,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+            )
         except subprocess.TimeoutExpired:
             failures.append(f"{h['name']}: timed out after {timeout}s")
             continue
@@ -883,9 +1019,14 @@ def cmd_dispatch(args: list) -> int:
 # init
 # --------------------------------------------------------------------------
 
-NOT_INSTALLED_NOTICE = json.dumps({"systemMessage": (
-    f"{TOOL} is not installed, so this project's .kiro/ workflow is not loaded in "
-    f"Claude Code. Install it as described in the {TOOL} README.")})
+NOT_INSTALLED_NOTICE = json.dumps(
+    {
+        "systemMessage": (
+            f"{TOOL} is not installed, so this project's .kiro/ workflow is not loaded in "
+            f"Claude Code. Install it as described in the {TOOL} README."
+        )
+    }
+)
 
 
 def settings_json(root: Path, script=None) -> dict:
@@ -904,11 +1045,17 @@ def settings_json(root: Path, script=None) -> dict:
     hooks = {}
     for event, timeout in DISPATCHED_EVENTS.items():
         entries = []
-        for args in (["sync --session-start"] if event == "SessionStart" else []) + [f"dispatch {event}"]:
-            notice = f"echo {shlex.quote(NOT_INSTALLED_NOTICE)}; " if args.startswith("sync") else ""
+        for args in (["sync --session-start"] if event == "SessionStart" else []) + [
+            f"dispatch {event}"
+        ]:
+            notice = (
+                f"echo {shlex.quote(NOT_INSTALLED_NOTICE)}; " if args.startswith("sync") else ""
+            )
             if vendored:
-                cmd = (f'f="$CLAUDE_PROJECT_DIR/{vendored}"; [ -f "$f" ] || {{ {notice}exit 0; }}; '
-                       f'python3 "$f" {args}')
+                cmd = (
+                    f'f="$CLAUDE_PROJECT_DIR/{vendored}"; [ -f "$f" ] || {{ {notice}exit 0; }}; '
+                    f'python3 "$f" {args}'
+                )
             else:
                 cmd = f"command -v {TOOL} >/dev/null 2>&1 || {{ {notice}exit 0; }}; {TOOL} {args}"
             entries.append({"type": "command", "command": cmd, "timeout": timeout})
@@ -926,8 +1073,11 @@ def cmd_init(args: list) -> int:
         except ValueError:
             current = None
         if current != wanted:
-            print(f"{TOOL}: .claude/settings.json exists; merge these hooks into it "
-                  "(or rerun with --force to overwrite):", file=sys.stderr)
+            print(
+                f"{TOOL}: .claude/settings.json exists; merge these hooks into it "
+                "(or rerun with --force to overwrite):",
+                file=sys.stderr,
+            )
             print(json.dumps(wanted, indent=2))
             return 1
     settings.parent.mkdir(parents=True, exist_ok=True)
@@ -935,7 +1085,9 @@ def cmd_init(args: list) -> int:
     gitignore = root / ".gitignore"
     text = gitignore.read_text() if gitignore.exists() else ""
     if GITIGNORE_BLOCK.splitlines()[0] not in text:
-        gitignore.write_text(text + ("\n" if text and not text.endswith("\n\n") else "") + GITIGNORE_BLOCK)
+        gitignore.write_text(
+            text + ("\n" if text and not text.endswith("\n\n") else "") + GITIGNORE_BLOCK
+        )
     print(f"{TOOL}: wrote .claude/settings.json and .gitignore entries")
     return cmd_sync(["--force"])
 

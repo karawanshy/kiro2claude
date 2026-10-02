@@ -32,3 +32,10 @@ kiro2claude = "kiro2claude:cli"
 [tool.setuptools]
 py-modules = ["kiro2claude"]
 package-dir = { "" = "src" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

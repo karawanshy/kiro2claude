@@ -109,6 +109,7 @@ kiro2claude --version
 
 ```bash
 python3 -m unittest discover tests
+ruff check . && ruff format --check .   # CI uses ruff 0.16.8
 ```
 
 ## License

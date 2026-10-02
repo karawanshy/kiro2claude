@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -22,39 +22,92 @@ def write(root: Path, relpath: str, content) -> None:
 
 
 def make_fixture(root: Path) -> None:
-    write(root, ".kiro/agents/backend.json", {
-        "name": "backend",
-        "description": "Builds backend features. Owns the API.",
-        "prompt": "You are the backend agent.",
-        "tools": ["read", "write", "shell", "@mcp"],
-        "resources": ["file://.kiro/steering/**/*.md", "skill://.kiro/skills/security-review/SKILL.md"],
-    })
-    write(root, ".kiro/agents/reviewer.json", {
-        "name": "reviewer", "description": "Reviews code.", "prompt": "Review.", "tools": ["read"],
-    })
-    write(root, ".kiro/agents/orchestrator.json", {
-        "name": "orchestrator", "description": "Coordinates agents.", "prompt": "Coordinate.",
-        "tools": ["read", "subagent", "todo_list"], "model": "claude-sonnet-4",
-    })
-    write(root, ".kiro/skills/db-migration/SKILL.md", "---\nname: db-migration\ndescription: Migrations.\n---\nBody\n")
-    write(root, ".kiro/skills/security-review/SKILL.md", "---\nname: security-review\ndescription: Sec.\n---\nBody\n")
+    write(
+        root,
+        ".kiro/agents/backend.json",
+        {
+            "name": "backend",
+            "description": "Builds backend features. Owns the API.",
+            "prompt": "You are the backend agent.",
+            "tools": ["read", "write", "shell", "@mcp"],
+            "resources": [
+                "file://.kiro/steering/**/*.md",
+                "skill://.kiro/skills/security-review/SKILL.md",
+            ],
+        },
+    )
+    write(
+        root,
+        ".kiro/agents/reviewer.json",
+        {
+            "name": "reviewer",
+            "description": "Reviews code.",
+            "prompt": "Review.",
+            "tools": ["read"],
+        },
+    )
+    write(
+        root,
+        ".kiro/agents/orchestrator.json",
+        {
+            "name": "orchestrator",
+            "description": "Coordinates agents.",
+            "prompt": "Coordinate.",
+            "tools": ["read", "subagent", "todo_list"],
+            "model": "claude-sonnet-4",
+        },
+    )
+    write(
+        root,
+        ".kiro/skills/db-migration/SKILL.md",
+        "---\nname: db-migration\ndescription: Migrations.\n---\nBody\n",
+    )
+    write(
+        root,
+        ".kiro/skills/security-review/SKILL.md",
+        "---\nname: security-review\ndescription: Sec.\n---\nBody\n",
+    )
     write(root, ".kiro/skills/security-review/LICENSE.txt", "license")
     write(root, ".kiro/steering/product.md", "# Product\nRules.\n")
-    write(root, ".kiro/steering/frontend/ui.md",
-          "---\ninclusion: fileMatch\nfileMatchPattern: \"frontend/**\"\n---\n# UI\nUse tokens.\n")
+    write(
+        root,
+        ".kiro/steering/frontend/ui.md",
+        '---\ninclusion: fileMatch\nfileMatchPattern: "frontend/**"\n---\n# UI\nUse tokens.\n',
+    )
     write(root, ".kiro/steering/release.md", "---\ninclusion: manual\n---\n# Release checklist\n")
     write(root, ".kiro/steering/ai.md", "---\ninclusion: auto\ndescription: AI rules\n---\n# AI\n")
     write(root, ".kiro/specs/app/tasks.md", "- [ ] task\n")
-    write(root, ".kiro/hooks/guard.json", {"version": "v1", "hooks": [
-        {"name": "guard", "trigger": "PreToolUse", "matcher": "execute_bash|shell",
-         "action": {"type": "command", "command": "bash guard.sh", "timeout": 15}},
-        {"name": "gate", "trigger": "PostTaskExec", "description": "Readiness gate.",
-         "action": {"type": "command", "command": "bash gate.sh"}},
-    ]})
-    write(root, ".kiro/hooks/lint.kiro.hook", {
-        "enabled": True, "name": "lint", "when": {"type": "fileEdited", "patterns": ["src/**/*.py"]},
-        "then": {"type": "askAgent", "prompt": "Run the linter."},
-    })
+    write(
+        root,
+        ".kiro/hooks/guard.json",
+        {
+            "version": "v1",
+            "hooks": [
+                {
+                    "name": "guard",
+                    "trigger": "PreToolUse",
+                    "matcher": "execute_bash|shell",
+                    "action": {"type": "command", "command": "bash guard.sh", "timeout": 15},
+                },
+                {
+                    "name": "gate",
+                    "trigger": "PostTaskExec",
+                    "description": "Readiness gate.",
+                    "action": {"type": "command", "command": "bash gate.sh"},
+                },
+            ],
+        },
+    )
+    write(
+        root,
+        ".kiro/hooks/lint.kiro.hook",
+        {
+            "enabled": True,
+            "name": "lint",
+            "when": {"type": "fileEdited", "patterns": ["src/**/*.py"]},
+            "then": {"type": "askAgent", "prompt": "Run the linter."},
+        },
+    )
     # Blocks any command containing "danger"; echoes context otherwise.
     write(root, "guard.sh", 'grep -q danger && { echo "blocked: danger" >&2; exit 2; }; exit 0\n')
 
@@ -97,12 +150,16 @@ class SyncTests(unittest.TestCase):
         self.assertTrue((self.root / ".claude/skills/db-migration").is_symlink())
         renamed = self.read(".claude/skills/kiro-security-review/SKILL.md")
         self.assertIn("name: kiro-security-review", renamed)
-        self.assertTrue((self.root / ".claude/skills/kiro-security-review/LICENSE.txt").is_symlink())
+        self.assertTrue(
+            (self.root / ".claude/skills/kiro-security-review/LICENSE.txt").is_symlink()
+        )
 
         rule = self.read(".claude/rules/frontend-ui.md")
         self.assertIn('paths:\n  - "frontend/**"', rule)
         self.assertIn("Use tokens.", rule)
-        self.assertIn("disable-model-invocation: true", self.read(".claude/skills/steering-release/SKILL.md"))
+        self.assertIn(
+            "disable-model-invocation: true", self.read(".claude/skills/steering-release/SKILL.md")
+        )
         auto = self.read(".claude/skills/steering-ai/SKILL.md")
         self.assertIn('description: "AI rules"', auto)
         self.assertNotIn("disable-model-invocation", auto)
@@ -114,7 +171,9 @@ class SyncTests(unittest.TestCase):
         self.assertIn("Coordinator agents (`orchestrator`)", md)
         self.assertIn("`guard`: PreToolUse", md)
         self.assertIn("`lint`: PostToolUse", md)
-        self.assertIn("`gate` (Kiro trigger `PostTaskExec`): run `bash gate.sh`. Readiness gate.", md)
+        self.assertIn(
+            "`gate` (Kiro trigger `PostTaskExec`): run `bash gate.sh`. Readiness gate.", md
+        )
         self.assertTrue(any("kiro-security-review" in w for w in warnings))
 
     def test_second_run_is_a_noop_until_kiro_changes(self):
@@ -158,11 +217,22 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(self.sync()[0], "current")
 
     def test_mcp_translation(self):
-        write(self.root, ".kiro/settings/mcp.json", {"mcpServers": {
-            "local": {"command": "npx", "args": ["x"], "env": {"T": "${env:TOKEN}"}, "autoApprove": ["a"]},
-            "remote": {"url": "https://example.com/mcp"},
-            "off": {"command": "y", "disabled": True},
-        }})
+        write(
+            self.root,
+            ".kiro/settings/mcp.json",
+            {
+                "mcpServers": {
+                    "local": {
+                        "command": "npx",
+                        "args": ["x"],
+                        "env": {"T": "${env:TOKEN}"},
+                        "autoApprove": ["a"],
+                    },
+                    "remote": {"url": "https://example.com/mcp"},
+                    "off": {"command": "y", "disabled": True},
+                }
+            },
+        )
         self.sync()
         mcp = json.loads(self.read(".mcp.json"))["mcpServers"]
         self.assertEqual(mcp["local"], {"command": "npx", "args": ["x"], "env": {"T": "${TOKEN}"}})
@@ -181,30 +251,44 @@ class DispatchTests(unittest.TestCase):
 
     def dispatch(self, event, payload):
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)}), \
-                mock.patch("sys.stdin", io.StringIO(json.dumps(payload))), \
-                redirect_stdout(out), redirect_stderr(err):
+        with (
+            mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)}),
+            mock.patch("sys.stdin", io.StringIO(json.dumps(payload))),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
             code = k2c.cmd_dispatch([event])
         return code, out.getvalue(), err.getvalue()
 
     def test_pre_tool_use_blocks_via_kiro_hook(self):
-        code, _, err = self.dispatch("PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "rm danger"}})
+        code, _, err = self.dispatch(
+            "PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "rm danger"}}
+        )
         self.assertEqual(code, 2)
         self.assertIn("blocked: danger", err)
 
     def test_pre_tool_use_allows(self):
-        code, out, _ = self.dispatch("PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "ls"}})
+        code, out, _ = self.dispatch(
+            "PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "ls"}}
+        )
         self.assertEqual((code, out), (0, ""))
 
     def test_matcher_skips_other_tools(self):
-        code, _, _ = self.dispatch("PreToolUse", {"tool_name": "Read", "tool_input": {"file_path": "danger"}})
+        code, _, _ = self.dispatch(
+            "PreToolUse", {"tool_name": "Read", "tool_input": {"file_path": "danger"}}
+        )
         self.assertEqual(code, 0)
 
     def test_file_edited_ask_agent_adds_context(self):
-        payload = {"tool_name": "Edit", "tool_input": {"file_path": str(self.root / "src/app/x.py")}}
+        payload = {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": str(self.root / "src/app/x.py")},
+        }
         code, out, _ = self.dispatch("PostToolUse", payload)
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out)["hookSpecificOutput"]["additionalContext"], "Run the linter.")
+        self.assertEqual(
+            json.loads(out)["hookSpecificOutput"]["additionalContext"], "Run the linter."
+        )
         payload["tool_input"]["file_path"] = str(self.root / "docs/x.md")
         self.assertEqual(self.dispatch("PostToolUse", payload)[1], "")
 
@@ -219,7 +303,9 @@ class SettingsTests(unittest.TestCase):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
         if path is not None:
             env["PATH"] = path
-        return subprocess.run(["bash", "-c", cmd], env=env, input="{}", text=True, capture_output=True)
+        return subprocess.run(
+            ["bash", "-c", cmd], env=env, input="{}", text=True, capture_output=True
+        )
 
     def test_vendored_hooks_skip_when_file_is_missing(self):
         with tempfile.TemporaryDirectory() as d:
@@ -253,9 +339,18 @@ class SettingsTests(unittest.TestCase):
 class FrontmatterTests(unittest.TestCase):
     def test_parses_lists_and_quotes(self):
         meta, body = k2c.split_frontmatter(
-            "---\n\nname: x\ninclusion: fileMatch\nfileMatchPattern: ['a/**', \"b\"]\nlist:\n  - one\n---\nBody")
-        self.assertEqual(meta, {"name": "x", "inclusion": "fileMatch", "fileMatchPattern": ["a/**", "b"],
-                                "list": ["one"]})
+            "---\n\nname: x\ninclusion: fileMatch\n"
+            "fileMatchPattern: ['a/**', \"b\"]\nlist:\n  - one\n---\nBody"
+        )
+        self.assertEqual(
+            meta,
+            {
+                "name": "x",
+                "inclusion": "fileMatch",
+                "fileMatchPattern": ["a/**", "b"],
+                "list": ["one"],
+            },
+        )
         self.assertEqual(body, "Body")
 
     def test_no_frontmatter(self):
