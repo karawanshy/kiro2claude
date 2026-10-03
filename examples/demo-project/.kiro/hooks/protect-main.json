@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "protect-main",
+      "description": "Block commits and pushes on main.",
+      "trigger": "PreToolUse",
+      "matcher": "execute_bash|shell",
+      "action": { "type": "command", "command": "bash scripts/protect-main.sh", "timeout": 10 }
+    }
+  ]
+}

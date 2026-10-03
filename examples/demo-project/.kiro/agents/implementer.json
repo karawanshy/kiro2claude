@@ -1,0 +1,10 @@
+{
+  "name": "implementer",
+  "description": "Implements one task from the spec. Writes code and tests.",
+  "prompt": "You implement exactly one task from .kiro/specs/todo-api/tasks.md, with tests.",
+  "tools": ["read", "write", "shell"],
+  "resources": [
+    "file://.kiro/specs/todo-api/requirements.md",
+    "skill://.kiro/skills/write-tests/SKILL.md"
+  ]
+}

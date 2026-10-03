@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -334,6 +335,69 @@ class SettingsTests(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(k2c.main(["--version"]), 0)
         self.assertEqual(out.getvalue().strip(), f"kiro2claude {k2c.__version__}")
+
+
+class ExampleProjectTests(unittest.TestCase):
+    """examples/demo-project runs as its READMEs show, so the docs can't drift."""
+
+    REPO = Path(__file__).resolve().parents[1]
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve() / "demo-project"
+        shutil.copytree(self.REPO / "examples/demo-project", self.root)
+        self.git("init", "-q")
+        self.git("symbolic-ref", "HEAD", "refs/heads/main")
+        self.env = mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def git(self, *args):
+        subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+
+    def run_cmd(self, fn, args, stdin=""):
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            mock.patch("sys.stdin", io.StringIO(stdin)),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            code = fn(args)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_init_and_sync_output_match_the_readmes(self):
+        code, init_out, _ = self.run_cmd(k2c.cmd_init, [])
+        self.assertEqual(code, 0)
+        code, sync_out, _ = self.run_cmd(k2c.cmd_sync, [])
+        self.assertEqual((code, sync_out), (0, "kiro2claude: up to date\n"))
+        for readme in ("README.md", "examples/demo-project/README.md"):
+            text = (self.REPO / readme).read_text()
+            for line in (init_out + sync_out).splitlines():
+                self.assertTrue(line in text, f"{readme} is missing demo output line: {line}")
+        for path in (
+            "CLAUDE.md",
+            ".mcp.json",
+            ".claude/settings.json",
+            ".claude/agents/implementer.md",
+            ".claude/agents/reviewer.md",
+            ".claude/rules/api-style.md",
+            ".claude/skills/steering-release/SKILL.md",
+        ):
+            self.assertTrue((self.root / path).is_file(), path)
+        self.assertTrue((self.root / ".claude/skills/write-tests").is_symlink())
+
+    def test_protect_main_hook_blocks_commits_on_main_only(self):
+        commit = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git commit -m x"}})
+        code, _, err = self.run_cmd(k2c.cmd_dispatch, ["PreToolUse"], commit)
+        self.assertEqual(code, 2)
+        self.assertIn("blocked: commit/push on main", err)
+        ls = json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}})
+        self.assertEqual(self.run_cmd(k2c.cmd_dispatch, ["PreToolUse"], ls)[0], 0)
+        self.git("checkout", "-q", "-b", "feature")
+        self.assertEqual(self.run_cmd(k2c.cmd_dispatch, ["PreToolUse"], commit)[0], 0)
 
 
 class FrontmatterTests(unittest.TestCase):

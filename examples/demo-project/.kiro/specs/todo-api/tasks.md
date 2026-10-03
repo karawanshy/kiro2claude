@@ -1,0 +1,3 @@
+- [ ] 1. `POST /todos` (Req 1)
+- [ ] 2. `GET /todos` (Req 2)
+- [ ] 3. `PATCH /todos/{id}` with `{"done": true}` (Req 3)

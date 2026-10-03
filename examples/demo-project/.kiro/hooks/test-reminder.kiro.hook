@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "name": "test-reminder",
+  "when": { "type": "fileEdited", "patterns": ["src/**/*.py"] },
+  "then": { "type": "askAgent", "prompt": "You edited source code: run the tests before finishing." }
+}
