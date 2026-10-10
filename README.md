@@ -94,7 +94,7 @@ git add .claude/settings.json .gitignore && git commit -m "Use kiro2claude"
 into your repo, for example as `tools/kiro2claude.py`, and run:
 
 ```bash
-python3 tools/kiro2claude.py init
+python3 tools/kiro2claude.py init   # on Windows: python or py -3
 ```
 
 The generated hooks then run that file by path.
@@ -129,13 +129,25 @@ kiro2claude --version
   Claude's context.
 - **Skill name clashes.** A Kiro skill named like a Claude Code built-in command
   (for example `security-review`) is exposed as `kiro-<name>`.
+- **When it cannot load, Claude Code stops.** If the tool is missing, no Python
+  3.9+ runs, or sync fails, session start says what is wrong and how to fix it,
+  and every prompt is blocked with the same message until it is fixed (a
+  Kiro guard hook that cannot run also blocks the tool call it guards). Start
+  Claude Code with `KIRO2CLAUDE_ALLOW_BROKEN=1` to use it anyway, for example to
+  get help with the fix. If Git Bash is not installed on Windows, Claude Code
+  runs hooks in PowerShell, where these bash hooks cannot run at all; install
+  Git for Windows.
 - **First session after a change.** Files written at session start may load only
   in the next session; the session is told so.
 - **Branch switches.** Generated files are gitignored, so they stay on disk when
   you switch branches. Until every branch has the hook, a branch without it keeps
   the previous branch's generated setup.
-- **Platforms.** macOS and Linux. On Windows, skills are copied instead of
-  symlinked and hooks need a bash-compatible shell.
+- **Platforms.** macOS, Linux and Windows. On Windows, Kiro hook commands run in
+  Git Bash (the shell Claude Code uses there; set `CLAUDE_CODE_GIT_BASH_PATH` if
+  it is not found), skills are copied when symlinks are not allowed, and the
+  vendored hooks use whichever of `python3`, `python` or `py -3` actually runs.
+  Commit a `.gitattributes` with `*.sh text eol=lf` so hook scripts keep LF
+  line endings on Windows checkouts.
 
 ## Development
 

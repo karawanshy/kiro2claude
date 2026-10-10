@@ -15,11 +15,21 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import kiro2claude as k2c  # noqa: E402
 
+# The bash that hook commands run in: Git Bash on Windows, not WSL's launcher.
+BASH = k2c._windows_bash() if k2c.WINDOWS else shutil.which("bash")
+POSIX_ONLY = unittest.skipIf(k2c.WINDOWS, "fakes PATH with POSIX shell scripts")
+
 
 def write(root: Path, relpath: str, content) -> None:
     p = root / relpath
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content if isinstance(content, str) else json.dumps(content))
+    text = content if isinstance(content, str) else json.dumps(content)
+    p.write_text(text, encoding="utf-8")
+
+
+def linked(p: Path) -> bool:
+    """A skill symlink, or on Windows without symlink rights, its copy."""
+    return p.is_symlink() or (k2c.WINDOWS and p.exists())
 
 
 def make_fixture(root: Path) -> None:
@@ -126,7 +136,7 @@ class SyncTests(unittest.TestCase):
         return k2c.sync(self.root, **kw)
 
     def read(self, relpath):
-        return (self.root / relpath).read_text()
+        return (self.root / relpath).read_text(encoding="utf-8")
 
     def test_generates_everything(self):
         status, changes, warnings = self.sync()
@@ -148,12 +158,10 @@ class SyncTests(unittest.TestCase):
         self.assertIn("model: sonnet", orch)
         self.assertIn("subagents cannot start other subagents", orch)
 
-        self.assertTrue((self.root / ".claude/skills/db-migration").is_symlink())
+        self.assertTrue(linked(self.root / ".claude/skills/db-migration"))
         renamed = self.read(".claude/skills/kiro-security-review/SKILL.md")
         self.assertIn("name: kiro-security-review", renamed)
-        self.assertTrue(
-            (self.root / ".claude/skills/kiro-security-review/LICENSE.txt").is_symlink()
-        )
+        self.assertTrue(linked(self.root / ".claude/skills/kiro-security-review/LICENSE.txt"))
 
         rule = self.read(".claude/rules/frontend-ui.md")
         self.assertIn('paths:\n  - "frontend/**"', rule)
@@ -293,42 +301,226 @@ class DispatchTests(unittest.TestCase):
         payload["tool_input"]["file_path"] = str(self.root / "docs/x.md")
         self.assertEqual(self.dispatch("PostToolUse", payload)[1], "")
 
+    def prompt(self, env=None):
+        with mock.patch.dict(os.environ, env or {}):
+            return self.dispatch("UserPromptSubmit", {"prompt": "hi"})
+
+    def test_prompts_are_blocked_while_sync_fails_then_ask_for_a_restart(self):
+        k2c.sync(self.root)
+        self.assertEqual(self.prompt(), (0, "", ""))  # healthy: nothing to say
+
+        boom = mock.patch.object(k2c, "build_plan", side_effect=ValueError("bad agent"))
+        with boom, mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)}):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(k2c.cmd_sync(["--session-start", "--force"]), 0)
+            message = json.loads(out.getvalue())["systemMessage"]
+            self.assertIn("could not load this project's .kiro/ workflow: bad agent", message)
+            self.assertIn("blocked until this is fixed", message)
+            code, out, _ = self.prompt()
+        self.assertEqual(code, 0)
+        blocked = json.loads(out)
+        self.assertEqual(blocked["decision"], "block")
+        self.assertIn("bad agent", blocked["reason"])
+
+        with boom:
+            self.assertEqual(self.prompt({"KIRO2CLAUDE_ALLOW_BROKEN": "1"})[1], "")
+
+        fixed = json.loads(self.prompt()[1])  # the next prompt resyncs successfully
+        self.assertEqual(fixed["decision"], "block")
+        self.assertIn("Restart Claude Code", fixed["reason"])
+        self.assertFalse((self.root / k2c.ERROR_FILE).exists())
+        self.assertEqual(self.prompt(), (0, "", ""))
+
+    def test_never_synced_project_syncs_on_first_prompt(self):
+        code, out, _ = self.prompt()
+        self.assertIn("Restart Claude Code", json.loads(out)["reason"])
+        self.assertTrue((self.root / "CLAUDE.md").is_file())
+
     def test_unmapped_trigger_never_runs(self):
         code, out, err = self.dispatch("Stop", {})
         self.assertEqual((code, out, err), (0, "", ""))
 
+    def test_guard_that_cannot_start_blocks_the_tool_call(self):
+        ls = {"tool_name": "Bash", "tool_input": {"command": "ls"}}
+        with (
+            mock.patch.object(k2c, "WINDOWS", True),
+            mock.patch.object(k2c, "_windows_bash", return_value=None),
+        ):
+            code, _, err = self.dispatch("PreToolUse", ls)
+            self.assertEqual(code, 2)
+            self.assertIn("guard: this Kiro hook could not run: Git Bash not found", err)
+            with mock.patch.dict(os.environ, {"KIRO2CLAUDE_ALLOW_BROKEN": "1"}):
+                code, _, err = self.dispatch("PreToolUse", ls)
+            self.assertEqual(code, 1)  # reported, not blocking
+            self.assertIn("guard: Git Bash not found", err)
+
+    def test_non_ascii_payload_reaches_hook_as_utf8(self):
+        write(self.root, "guard.sh", "cat > seen.txt; exit 0\n")
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo \u2192 \u0645\u0631\u062d\u0628\u0627"},
+        }
+        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        stdin = io.TextIOWrapper(io.BytesIO(raw), encoding="cp1252")  # a Windows default
+        with (
+            mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.root)}),
+            mock.patch("sys.stdin", stdin),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(k2c.cmd_dispatch(["PreToolUse"]), 0)
+        seen = json.loads((self.root / "seen.txt").read_text(encoding="utf-8"))
+        self.assertEqual(seen, payload)
+
+
+class WindowsBashTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name).resolve()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def touch(self, relpath):
+        p = self.base / relpath
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("")
+        return str(p)
+
+    def find(self, which):
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_GIT_BASH_PATH": ""}):
+            with mock.patch.object(k2c.shutil, "which", side_effect=which.get):
+                return k2c._windows_bash()
+
+    def test_skips_wsl_launcher_and_finds_git_bash_next_to_git(self):
+        wsl = self.touch("Windows/System32/bash.exe")
+        git = self.touch("Git/cmd/git.exe")
+        bash = self.touch("Git/bin/bash.exe")
+        self.assertEqual(self.find({"bash": wsl, "git": git}), bash)
+
+    def test_git_under_mingw64(self):
+        git = self.touch("Git/mingw64/bin/git.exe")
+        bash = self.touch("Git/bin/bash.exe")
+        self.assertEqual(self.find({"git": git}), bash)
+
+    def test_claude_code_setting_wins(self):
+        bash = self.touch("custom/bash.exe")
+        with (
+            mock.patch.dict(os.environ, {"CLAUDE_CODE_GIT_BASH_PATH": bash}),
+            mock.patch.object(k2c.shutil, "which", return_value=None),
+        ):
+            self.assertEqual(k2c._windows_bash(), bash)
+
+    def test_none_found(self):
+        self.assertIsNone(self.find({}))
+
+    def test_posix_keeps_the_default_shell(self):
+        with mock.patch.object(k2c, "WINDOWS", False):
+            self.assertEqual(k2c.hook_argv("bash x.sh"), ("bash x.sh", True))
+
+    def test_windows_runs_hooks_in_git_bash(self):
+        with (
+            mock.patch.object(k2c, "WINDOWS", True),
+            mock.patch.object(k2c, "_windows_bash", return_value="C:/Git/bin/bash.exe"),
+        ):
+            argv = k2c.hook_argv("bash x.sh")
+        self.assertEqual(argv, (["C:/Git/bin/bash.exe", "-c", "bash x.sh"], False))
+
 
 class SettingsTests(unittest.TestCase):
-    def run_hook(self, root, script, event, index=0, path=None):
+    def run_hook(self, root, script, event, index=0, path=None, env=None):
         cmd = k2c.settings_json(root, script)["hooks"][event][0]["hooks"][index]["command"]
-        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root))
+        full = {k: v for k, v in os.environ.items() if k != "KIRO2CLAUDE_ALLOW_BROKEN"}
+        full.update(CLAUDE_PROJECT_DIR=str(root), **(env or {}))
         if path is not None:
-            env["PATH"] = path
+            full["PATH"] = path
         return subprocess.run(
-            ["bash", "-c", cmd], env=env, input="{}", text=True, capture_output=True
+            [BASH, "-c", cmd], env=full, input="{}", text=True, capture_output=True
         )
 
-    def test_vendored_hooks_skip_when_file_is_missing(self):
+    def assert_reports(self, root, script, problem, path=None):
+        """SessionStart explains `problem`; prompts are blocked unless allowed."""
+        start = self.run_hook(root, script, "SessionStart", path=path)
+        self.assertEqual(start.returncode, 0)
+        message = json.loads(start.stdout)["systemMessage"]
+        self.assertIn(problem, message)
+        self.assertIn("blocked until this is fixed", message)
+        self.assertEqual(self.run_hook(root, script, "SessionStart", 1, path=path).stdout, "")
+        prompt = self.run_hook(root, script, "UserPromptSubmit", path=path)
+        self.assertEqual(prompt.returncode, 0)
+        blocked = json.loads(prompt.stdout)
+        self.assertEqual(blocked["decision"], "block")
+        self.assertIn(problem, blocked["reason"])
+        allow = {"KIRO2CLAUDE_ALLOW_BROKEN": "1"}
+        allowed = self.run_hook(root, script, "UserPromptSubmit", path=path, env=allow)
+        self.assertEqual((allowed.returncode, allowed.stdout), (0, ""))
+        start = self.run_hook(root, script, "SessionStart", path=path, env=allow)
+        self.assertIn("Continuing without it", json.loads(start.stdout)["systemMessage"])
+        tool = self.run_hook(root, script, "PreToolUse", path=path)
+        self.assertEqual((tool.returncode, tool.stdout), (0, ""))
+
+    def test_vendored_hooks_report_a_missing_file(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d).resolve()
             script = root / "tools/kiro2claude.py"  # vendored, but not present
             cmd = k2c.settings_json(root, script)["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
             self.assertIn('"$CLAUDE_PROJECT_DIR/tools/kiro2claude.py"', cmd)
-            self.assertEqual(self.run_hook(root, script, "PreToolUse").returncode, 0)
-            start = self.run_hook(root, script, "SessionStart")
-            self.assertEqual(start.returncode, 0)
-            self.assertIn("is not installed", json.loads(start.stdout)["systemMessage"])
+            self.assert_reports(root, script, "tools/kiro2claude.py is missing")
 
-    def test_installed_hooks_skip_when_command_is_missing(self):
+    @POSIX_ONLY
+    def test_installed_hooks_report_a_missing_command(self):
         with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as elsewhere:
             root = Path(d).resolve()
             script = Path(elsewhere) / "kiro2claude.py"  # outside the project: installed mode
             cmd = k2c.settings_json(root, script)["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
             self.assertTrue(cmd.endswith("kiro2claude dispatch PreToolUse"))
-            no_tool = "/usr/bin:/bin"
-            self.assertEqual(self.run_hook(root, script, "PreToolUse", path=no_tool).returncode, 0)
-            start = self.run_hook(root, script, "SessionStart", path=no_tool)
-            self.assertIn("is not installed", json.loads(start.stdout)["systemMessage"])
+            self.assert_reports(root, script, "kiro2claude is not installed", path="/usr/bin:/bin")
+
+    def fake_bin(self, d, good=()):
+        """A PATH dir where python3/python/py fail like the Windows Store stub,
+        except the names in `good`, which run the real interpreter."""
+        bindir = Path(d) / "bin"
+        bindir.mkdir()
+        for name in ("python3", "python", "py"):
+            p = bindir / name
+            if name in good:
+                p.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+            else:
+                p.write_text("#!/bin/sh\necho 'Python was not found' >&2; exit 9009\n")
+            p.chmod(0o755)
+        return str(bindir)
+
+    def vendored_project(self, d):
+        root = Path(d).resolve() / "proj"
+        make_fixture(root)
+        script = root / "tools/kiro2claude.py"
+        script.parent.mkdir(parents=True)
+        shutil.copy(k2c.__file__, script)
+        return root, script
+
+    @POSIX_ONLY
+    def test_vendored_hooks_fall_back_past_a_broken_python3(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, script = self.vendored_project(d)
+            path = self.fake_bin(d, good=("python",)) + ":/usr/bin:/bin"
+            cmd = k2c.settings_json(root, script)["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            env = dict(os.environ, CLAUDE_PROJECT_DIR=str(root), PATH=path)
+            danger = json.dumps({"tool_name": "Bash", "tool_input": {"command": "rm danger"}})
+            proc = subprocess.run(
+                [BASH, "-c", cmd],
+                env=env,
+                input=danger,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(proc.returncode, 2, proc.stderr)  # the Kiro hook ran
+            self.assertIn("blocked: danger", proc.stderr)
+
+    @POSIX_ONLY
+    def test_vendored_hooks_report_when_no_python_runs(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, script = self.vendored_project(d)
+            self.assert_reports(root, script, "needs Python 3.9+", path=self.fake_bin(d))
 
     def test_version(self):
         out = io.StringIO()
@@ -374,7 +566,7 @@ class ExampleProjectTests(unittest.TestCase):
         code, sync_out, _ = self.run_cmd(k2c.cmd_sync, [])
         self.assertEqual((code, sync_out), (0, "kiro2claude: up to date\n"))
         for readme in ("README.md", "examples/demo-project/README.md"):
-            text = (self.REPO / readme).read_text()
+            text = (self.REPO / readme).read_text(encoding="utf-8")
             for line in (init_out + sync_out).splitlines():
                 self.assertTrue(line in text, f"{readme} is missing demo output line: {line}")
         for path in (
@@ -387,7 +579,7 @@ class ExampleProjectTests(unittest.TestCase):
             ".claude/skills/steering-release/SKILL.md",
         ):
             self.assertTrue((self.root / path).is_file(), path)
-        self.assertTrue((self.root / ".claude/skills/write-tests").is_symlink())
+        self.assertTrue(linked(self.root / ".claude/skills/write-tests"))
 
     def test_protect_main_hook_blocks_commits_on_main_only(self):
         commit = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git commit -m x"}})
@@ -398,6 +590,39 @@ class ExampleProjectTests(unittest.TestCase):
         self.assertEqual(self.run_cmd(k2c.cmd_dispatch, ["PreToolUse"], ls)[0], 0)
         self.git("checkout", "-q", "-b", "feature")
         self.assertEqual(self.run_cmd(k2c.cmd_dispatch, ["PreToolUse"], commit)[0], 0)
+
+
+class EncodingTests(unittest.TestCase):
+    """Windows Python (before 3.15) defaults to the locale code page, not UTF-8."""
+
+    def test_sync_keeps_non_ascii_text_without_a_utf8_locale(self):
+        env = dict(os.environ, PYTHONUTF8="0", PYTHONCOERCECLOCALE="0", LC_ALL="C", LANG="C")
+        env.pop("PYTHONIOENCODING", None)
+        probe = "import locale; print(locale.getpreferredencoding(False))"
+        enc = subprocess.run(
+            [sys.executable, "-c", probe], env=env, text=True, capture_output=True
+        ).stdout.strip()
+        if enc.lower().replace("-", "") in ("utf8", ""):
+            self.skipTest(f"cannot get a non-UTF-8 default encoding here ({enc!r})")
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            make_fixture(root)
+            text = "A \u2192 B \u2014 \u0645\u0631\u062d\u0628\u0627"
+            ui = root / ".kiro/steering/frontend/ui.md"
+            ui.write_text(
+                f'---\ninclusion: fileMatch\nfileMatchPattern: "frontend/**"\n---\n{text}\n',
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                [sys.executable, k2c.__file__, "sync"],
+                cwd=root,
+                env=dict(env, CLAUDE_PROJECT_DIR=str(root)),
+                capture_output=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+            rule = (root / ".claude/rules/frontend-ui.md").read_bytes()
+            self.assertIn(text, rule.decode("utf-8"))
+            self.assertNotIn(b"\r\n", rule)
 
 
 class FrontmatterTests(unittest.TestCase):

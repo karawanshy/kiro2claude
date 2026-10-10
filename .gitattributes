@@ -1,0 +1,2 @@
+# Hook scripts run in bash, which fails on CRLF; keep LF on Windows checkouts.
+*.sh text eol=lf
