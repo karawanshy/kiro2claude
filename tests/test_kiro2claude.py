@@ -355,6 +355,29 @@ class DispatchTests(unittest.TestCase):
             self.assertEqual(code, 1)  # reported, not blocking
             self.assertIn("guard: Git Bash not found", err)
 
+    def test_guard_whose_script_is_missing_blocks_the_tool_call(self):
+        (self.root / "guard.sh").unlink()  # bash starts, the script does not: exit 127
+        ls = {"tool_name": "Bash", "tool_input": {"command": "ls"}}
+        code, _, err = self.dispatch("PreToolUse", ls)
+        self.assertEqual(code, 2)
+        self.assertIn("guard: this Kiro hook could not run: exit 127", err)
+        with mock.patch.dict(os.environ, {"KIRO2CLAUDE_ALLOW_BROKEN": "1"}):
+            code, _, err = self.dispatch("PreToolUse", ls)
+        self.assertEqual(code, 1)
+        self.assertIn("guard: exit 127", err)
+
+    def test_guard_that_times_out_blocks_the_tool_call(self):
+        ls = {"tool_name": "Bash", "tool_input": {"command": "ls"}}
+        slow = subprocess.TimeoutExpired("bash guard.sh", 15)
+        with mock.patch.object(k2c.subprocess, "run", side_effect=slow):
+            code, _, err = self.dispatch("PreToolUse", ls)
+            self.assertEqual(code, 2)
+            self.assertIn("guard: this Kiro hook could not run: timed out after 15s", err)
+            with mock.patch.dict(os.environ, {"KIRO2CLAUDE_ALLOW_BROKEN": "1"}):
+                code, _, err = self.dispatch("PreToolUse", ls)
+        self.assertEqual(code, 1)
+        self.assertIn("guard: timed out after 15s", err)
+
     def test_non_ascii_payload_reaches_hook_as_utf8(self):
         write(self.root, "guard.sh", "cat > seen.txt; exit 0\n")
         payload = {
@@ -456,8 +479,15 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual((allowed.returncode, allowed.stdout), (0, ""))
         start = self.run_hook(root, script, "SessionStart", path=path, env=allow)
         self.assertIn("Continuing without it", json.loads(start.stdout)["systemMessage"])
+        # Tool calls are blocked too, for when the setup breaks mid-session.
         tool = self.run_hook(root, script, "PreToolUse", path=path)
-        self.assertEqual((tool.returncode, tool.stdout), (0, ""))
+        self.assertEqual((tool.returncode, tool.stdout), (2, ""))
+        self.assertIn(problem, tool.stderr)
+        self.assertIn("blocked until this is fixed", tool.stderr)
+        tool = self.run_hook(root, script, "PreToolUse", path=path, env=allow)
+        self.assertEqual((tool.returncode, tool.stdout, tool.stderr), (0, "", ""))
+        after = self.run_hook(root, script, "PostToolUse", path=path)
+        self.assertEqual((after.returncode, after.stdout, after.stderr), (0, "", ""))
 
     def test_vendored_hooks_report_a_missing_file(self):
         with tempfile.TemporaryDirectory() as d:
@@ -623,6 +653,22 @@ class EncodingTests(unittest.TestCase):
             rule = (root / ".claude/rules/frontend-ui.md").read_bytes()
             self.assertIn(text, rule.decode("utf-8"))
             self.assertNotIn(b"\r\n", rule)
+
+    def test_block_reason_reaches_claude_code_as_utf8(self):
+        text = "BLOCKED → main — مرفوض"
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            make_fixture(root)
+            write(root, "guard.sh", f"echo '{text}' >&2; exit 2\n")
+            proc = subprocess.run(
+                [sys.executable, k2c.__file__, "dispatch", "PreToolUse"],
+                cwd=root,
+                env=dict(os.environ, CLAUDE_PROJECT_DIR=str(root), PYTHONIOENCODING="cp1252"),
+                input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}}).encode(),
+                capture_output=True,
+            )
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn(text, proc.stderr.decode("utf-8"))
 
 
 class FrontmatterTests(unittest.TestCase):

@@ -100,7 +100,7 @@ python3 tools/kiro2claude.py init   # on Windows: python or py -3
 The generated hooks then run that file by path.
 
 If the tool is missing (not installed, or on a branch without the vendored copy),
-the hooks skip quietly and the session shows a one-line notice instead of failing.
+Claude Code says so and stops until it is back (see "When it cannot load" below).
 
 ## Commands
 
@@ -131,8 +131,10 @@ kiro2claude --version
   (for example `security-review`) is exposed as `kiro-<name>`.
 - **When it cannot load, Claude Code stops.** If the tool is missing, no Python
   3.9+ runs, or sync fails, session start says what is wrong and how to fix it,
-  and every prompt is blocked with the same message until it is fixed (a
-  Kiro guard hook that cannot run also blocks the tool call it guards). Start
+  and every prompt is blocked with the same message until it is fixed. If it
+  breaks mid-session, every tool call is blocked too, and a Kiro guard hook
+  that cannot run (no Git Bash, its script missing, or a timeout) blocks the tool
+  call it guards, so guards never silently stop guarding. Start
   Claude Code with `KIRO2CLAUDE_ALLOW_BROKEN=1` to use it anyway, for example to
   get help with the fix. If Git Bash is not installed on Windows, Claude Code
   runs hooks in PowerShell, where these bash hooks cannot run at all; install
