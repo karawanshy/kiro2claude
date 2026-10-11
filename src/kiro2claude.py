@@ -1100,6 +1100,7 @@ def cmd_dispatch(args: list) -> int:
         timeout = (
             h["timeout"] if isinstance(h["timeout"], (int, float)) and h["timeout"] > 0 else None
         )
+        problem = None
         try:
             argv, shell = hook_argv(h["command"])
             proc = subprocess.run(
@@ -1114,14 +1115,20 @@ def cmd_dispatch(args: list) -> int:
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
-            failures.append(f"{h['name']}: timed out after {timeout}s")
-            continue
+            problem = f"timed out after {timeout}s"
         except OSError as e:  # e.g. no Git Bash: the hook cannot run at all
+            problem = str(e)
+        else:
+            if proc.returncode in (126, 127):  # the shell ran, but the hook's command did not
+                problem = f"exit {proc.returncode}: {proc.stderr.strip()}"
+        if problem:
             if event == "PreToolUse" and not _allow_broken():
-                # A guard that cannot run must not wave the tool call through.
-                sys.stderr.write(f"{h['name']}: this Kiro hook could not run: {e}.{BLOCKED_NOTE}\n")
+                # A guard that did not run to completion must not wave the tool call through.
+                sys.stderr.write(
+                    f"{h['name']}: this Kiro hook could not run: {problem}.{BLOCKED_NOTE}\n"
+                )
                 return 2
-            failures.append(f"{h['name']}: {e}")
+            failures.append(f"{h['name']}: {problem}")
             continue
         if proc.returncode == 2:  # blocking, in both Kiro and Claude Code
             sys.stderr.write(proc.stderr or f"{h['name']}: blocked\n")
@@ -1177,21 +1184,26 @@ FIND_PYTHON = (
 
 
 def _report_unloadable(event: str, problem: str) -> str:
-    """Shell that reports `problem` when the tool cannot even start.
+    """Shell that reports `problem` and exits, for when the tool cannot even start.
 
     SessionStart cannot block, so it explains; UserPromptSubmit blocks every
-    prompt until the problem is fixed (unless KIRO2CLAUDE_ALLOW_BROKEN=1). Other
-    events stay silent, since no prompt gets through to trigger them.
+    prompt and PreToolUse every tool call until the problem is fixed (unless
+    KIRO2CLAUDE_ALLOW_BROKEN=1). PreToolUse matters when the setup breaks
+    mid-session: Kiro guard hooks cannot run, so no tool call may go through
+    unchecked. Other events exit silently.
     """
     allowed = f'[ "${{{ALLOW_BROKEN_ENV}:-}}" = 1 ]'
     if event == "SessionStart":
         warn = shlex.quote(json.dumps({"systemMessage": problem + ALLOWED_NOTE}))
         block = shlex.quote(json.dumps({"systemMessage": problem + BLOCKED_NOTE}))
-        return f"if {allowed}; then echo {warn}; else echo {block}; fi; "
+        return f"if {allowed}; then echo {warn}; else echo {block}; fi; exit 0; "
     if event == "UserPromptSubmit":
         block = shlex.quote(json.dumps({"decision": "block", "reason": problem + BLOCKED_NOTE}))
-        return f"{allowed} || echo {block}; "
-    return ""
+        return f"{allowed} || echo {block}; exit 0; "
+    if event == "PreToolUse":
+        reason = shlex.quote(problem + BLOCKED_NOTE)
+        return f"{allowed} && exit 0; printf '%s\\n' {reason} >&2; exit 2; "
+    return "exit 0; "
 
 
 def settings_json(root: Path, script=None) -> dict:
@@ -1199,8 +1211,7 @@ def settings_json(root: Path, script=None) -> dict:
 
     A copy of this file inside the project (vendored) is run by path with the
     first working Python; otherwise the installed `kiro2claude` command is used.
-    When the tool cannot start, the hooks exit 0 (exit 2 would block tool calls
-    with a confusing error) and report it through _report_unloadable instead.
+    When the tool cannot start, _report_unloadable decides what each event does.
     """
     script = Path(script or __file__).resolve()
     try:
@@ -1223,8 +1234,8 @@ def settings_json(root: Path, script=None) -> dict:
                 )
                 no_py = _report_unloadable(report_as, NO_PYTHON)
                 cmd = (
-                    f'f="$CLAUDE_PROJECT_DIR/{vendored}"; [ -f "$f" ] || {{ {missing}exit 0; }}; '
-                    f'{FIND_PYTHON}; [ -n "$py" ] || {{ {no_py}exit 0; }}; $py "$f" {args}'
+                    f'f="$CLAUDE_PROJECT_DIR/{vendored}"; [ -f "$f" ] || {{ {missing}}}; '
+                    f'{FIND_PYTHON}; [ -n "$py" ] || {{ {no_py}}}; $py "$f" {args}'
                 )
             else:
                 missing = _report_unloadable(
@@ -1232,7 +1243,7 @@ def settings_json(root: Path, script=None) -> dict:
                     f"{TOOL} is not installed, so this project's .kiro/ workflow cannot load. "
                     f"Install it ({INSTALL_HINT}), then restart Claude Code.",
                 )
-                cmd = f"command -v {TOOL} >/dev/null 2>&1 || {{ {missing}exit 0; }}; {TOOL} {args}"
+                cmd = f"command -v {TOOL} >/dev/null 2>&1 || {{ {missing}}}; {TOOL} {args}"
             entries.append({"type": "command", "command": cmd, "timeout": timeout})
         hooks[event] = [{"hooks": entries}]
     return {"hooks": hooks}
@@ -1280,6 +1291,10 @@ def main(argv: list) -> int:
 
 def cli() -> None:
     """Console-script entry point."""
+    # Windows pipes default to the ANSI code page; hook reasons can be any language.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(main(sys.argv[1:]))
 
 
